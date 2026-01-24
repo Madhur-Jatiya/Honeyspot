@@ -31,6 +31,9 @@ async def send_final_result_callback(
         "agentNotes": agent_notes,
     }
 
+    # Simple log so you can see in the server console that the callback was triggered.
+    print("GUVI final callback payload:", payload, flush=True)
+
     async with httpx.AsyncClient(timeout=GUVI_CALLBACK_TIMEOUT_SECONDS) as client:
         try:
             await client.post(GUVI_CALLBACK_URL, json=payload)

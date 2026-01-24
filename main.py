@@ -78,8 +78,13 @@ async def honeypot_endpoint(
         agentReply=analysis.agentReply or None,
     )
 
-    # Fire-and-forget callback if conditions are met
-    if analysis.scamDetected and analysis.shouldTriggerCallback:
+    # Fire-and-forget callback if conditions are met.
+    # For hackathon and testing, we also trigger when the conversation is long enough.
+    should_callback = analysis.scamDetected and (
+        analysis.shouldTriggerCallback or metrics.totalMessagesExchanged >= 4
+    )
+
+    if should_callback:
         # Do not await; schedule but ignore result
         import asyncio
 
