@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+import logging
 
 import httpx
 
 from config import GUVI_CALLBACK_TIMEOUT_SECONDS, GUVI_CALLBACK_URL
 from schemas import ExtractedIntelligence, HoneypotRequest
+
+logger = logging.getLogger("honeypot.callback")
 
 
 async def send_final_result_callback(
@@ -31,13 +33,15 @@ async def send_final_result_callback(
         "agentNotes": agent_notes,
     }
 
-    # Simple log so you can see in the server console that the callback was triggered.
-    print("GUVI final callback payload:", payload, flush=True)
+    logger.info("Sending GUVI callback | sessionId=%s | scamDetected=%s | totalMessages=%d",
+                request.sessionId, scam_detected, total_messages_exchanged)
 
     async with httpx.AsyncClient(timeout=GUVI_CALLBACK_TIMEOUT_SECONDS) as client:
         try:
-            await client.post(GUVI_CALLBACK_URL, json=payload)
-        except Exception:
-            # Swallow errors to avoid impacting main API response
-            return
+            resp = await client.post(GUVI_CALLBACK_URL, json=payload)
+            logger.info("GUVI callback done | sessionId=%s | status=%d",
+                        request.sessionId, resp.status_code)
+        except Exception as exc:
+            logger.error("GUVI callback failed | sessionId=%s | error=%s",
+                         request.sessionId, exc)
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from typing import List
 
 import google.generativeai as genai
@@ -7,6 +9,8 @@ from pydantic import ValidationError
 
 from config import GEMINI_API_KEY, GEMINI_MODEL_NAME
 from schemas import ExtractedIntelligence, GeminiAnalysisResult, HoneypotRequest
+
+logger = logging.getLogger("honeypot.gemini")
 
 
 if not GEMINI_API_KEY:
@@ -64,7 +68,9 @@ def build_conversation_text(request: HoneypotRequest) -> str:
 
 def analyze_with_gemini(request: HoneypotRequest) -> GeminiAnalysisResult:
     conversation_text = build_conversation_text(request)
+    logger.info("Calling Gemini | sessionId=%s | model=%s", request.sessionId, GEMINI_MODEL_NAME)
 
+    start = time.perf_counter()
     model = genai.GenerativeModel(GEMINI_MODEL_NAME)
     response = model.generate_content(
         [
@@ -94,7 +100,11 @@ def analyze_with_gemini(request: HoneypotRequest) -> GeminiAnalysisResult:
             shouldTriggerCallback=bool(data.get("shouldTriggerCallback", False)),
         )
     except ValidationError as exc:
+        logger.error("Gemini output validation failed: %s", exc)
         raise RuntimeError(f"Gemini output failed validation: {exc}") from exc
 
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    logger.info("Gemini done | sessionId=%s | scamDetected=%s | elapsed_ms=%.0f",
+                request.sessionId, result.scamDetected, elapsed_ms)
     return result
 
