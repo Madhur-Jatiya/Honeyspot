@@ -69,13 +69,10 @@ async def honeypot_endpoint(
 
     metrics = compute_engagement_metrics(payload)
 
+    # Simplified response: only status and reply (as required by evaluator)
     response = HoneypotResponse(
         status="success",
-        scamDetected=analysis.scamDetected,
-        engagementMetrics=metrics,
-        extractedIntelligence=analysis.intelligence,
-        agentNotes=analysis.agentNotes,
-        agentReply=analysis.agentReply or None,
+        reply=analysis.agentReply or "",
     )
 
     # Fire-and-forget callback if conditions are met.
