@@ -41,11 +41,11 @@ class Metadata(BaseModel):
 
 
 class HoneypotRequest(BaseModel):
-    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+    model_config = ConfigDict(extra="ignore")
 
-    sessionId: str = Field(alias="session_id")
+    sessionId: str
     message: Message
-    conversationHistory: List[Message] = Field(default_factory=list, alias="conversation_history")
+    conversationHistory: List[Message] = Field(default_factory=list)
     metadata: Optional[Metadata] = None
 
 
