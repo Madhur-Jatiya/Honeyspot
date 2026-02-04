@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 
 from callback_client import send_final_result_callback
@@ -17,6 +18,22 @@ app = FastAPI(
     version="1.0.0",
     default_response_class=ORJSONResponse,
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return ORJSONResponse(
+        status_code=422,
+        content={"status": "error", "message": "Invalid request body"},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return ORJSONResponse(
+        status_code=exc.status_code,
+        content={"status": "error", "message": exc.detail},
+    )
 
 
 def verify_api_key(x_api_key: Optional[str] = Header(default=None, alias=API_KEY_HEADER_NAME)) -> None:
