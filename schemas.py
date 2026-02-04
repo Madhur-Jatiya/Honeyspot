@@ -1,13 +1,30 @@
-from datetime import datetime
-from typing import List, Literal, Optional
+from datetime import datetime, timezone
+from typing import List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _parse_timestamp(v: Union[int, str, datetime]) -> datetime:
+    """Accept epoch ms (int), ISO string, or datetime. GUVI sends epoch ms."""
+    if isinstance(v, datetime):
+        return v
+    if isinstance(v, int):
+        return datetime.fromtimestamp(v / 1000.0, tz=timezone.utc)
+    if isinstance(v, str):
+        s = v.replace("Z", "+00:00") if v.endswith("Z") else v
+        return datetime.fromisoformat(s)
+    raise ValueError(f"Invalid timestamp: {v}")
 
 
 class Message(BaseModel):
     sender: Literal["scammer", "user"]
     text: str
     timestamp: datetime
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def parse_timestamp(cls, v: object) -> datetime:
+        return _parse_timestamp(v)  # type: ignore
 
 
 class Metadata(BaseModel):
@@ -17,13 +34,10 @@ class Metadata(BaseModel):
 
 
 class HoneypotRequest(BaseModel):
-    sessionId: str = Field(..., alias="sessionId")
+    sessionId: str
     message: Message
     conversationHistory: List[Message] = []
     metadata: Optional[Metadata] = None
-
-    class Config:
-        populate_by_name = True
 
 
 class EngagementMetrics(BaseModel):
