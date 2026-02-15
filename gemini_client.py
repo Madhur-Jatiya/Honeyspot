@@ -118,10 +118,7 @@ def analyze_with_gemini(request: HoneypotRequest) -> GeminiAnalysisResult:
             "CONVERSATION:\n",
             conversation_text,
         ],
-        generation_config={
-            "response_mime_type": "application/json",
-            "max_output_tokens": 300,
-        },
+        generation_config={"response_mime_type": "application/json"},
     )
 
     result = _parse_gemini_json(response.text)
