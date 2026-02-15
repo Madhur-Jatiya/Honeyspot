@@ -65,10 +65,7 @@ class ExtractedIntelligence(BaseModel):
 class HoneypotResponse(BaseModel):
     status: Literal["success", "error"]
     reply: str
-    scamDetected: bool = False
-    engagementMetrics: Optional[EngagementMetrics] = None
-    extractedIntelligence: Optional[ExtractedIntelligence] = None
-    agentNotes: Optional[str] = None
+   
 
 
 class GeminiAnalysisResult(BaseModel):

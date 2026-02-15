@@ -1,0 +1,12 @@
+.git
+.gitignore
+.dockerignore
+tests/
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+*.md
+honeypot.postman_collection.json
+AI for Fraud Detection & User Safety document.txt

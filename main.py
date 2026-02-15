@@ -124,10 +124,7 @@ async def honeypot_endpoint(
     response = HoneypotResponse(
         status="success",
         reply=analysis.agentReply or "",
-        scamDetected=analysis.scamDetected,
-        engagementMetrics=metrics,
-        extractedIntelligence=analysis.intelligence,
-        agentNotes=analysis.agentNotes,
+
     )
 
     # Fire-and-forget callback if conditions are met.
