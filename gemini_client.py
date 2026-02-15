@@ -106,24 +106,39 @@ def _parse_gemini_json(raw_text: str) -> GeminiAnalysisResult:
         raise RuntimeError(f"Gemini output failed validation: {exc}") from exc
 
 
+_GEMINI_MAX_ATTEMPTS = 2
+_GEMINI_RETRY_DELAY = 1.0
+
+
 def analyze_with_gemini(request: HoneypotRequest) -> GeminiAnalysisResult:
     conversation_text = build_conversation_text(request)
     logger.info("Calling Gemini | sessionId=%s | model=%s", request.sessionId, GEMINI_MODEL_NAME)
 
-    start = time.perf_counter()
-    response = _model.generate_content(
-        [
-            _SYSTEM_PROMPT.strip(),
-            "\n---\n",
-            "CONVERSATION:\n",
-            conversation_text,
-        ],
-        generation_config={"response_mime_type": "application/json"},
-    )
+    last_exc: Exception | None = None
+    for attempt in range(1, _GEMINI_MAX_ATTEMPTS + 1):
+        try:
+            start = time.perf_counter()
+            response = _model.generate_content(
+                [
+                    _SYSTEM_PROMPT.strip(),
+                    "\n---\n",
+                    "CONVERSATION:\n",
+                    conversation_text,
+                ],
+                generation_config={"response_mime_type": "application/json"},
+                request_options={"timeout": 45},
+            )
+            result = _parse_gemini_json(response.text)
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            logger.info("Gemini done | sessionId=%s | scamDetected=%s | elapsed_ms=%.0f | attempt=%d",
+                        request.sessionId, result.scamDetected, elapsed_ms, attempt)
+            return result
+        except Exception as exc:
+            last_exc = exc
+            logger.warning("Gemini attempt %d failed | sessionId=%s | error=%s",
+                           attempt, request.sessionId, exc)
+            if attempt < _GEMINI_MAX_ATTEMPTS:
+                time.sleep(_GEMINI_RETRY_DELAY)
 
-    result = _parse_gemini_json(response.text)
-    elapsed_ms = (time.perf_counter() - start) * 1000
-    logger.info("Gemini done | sessionId=%s | scamDetected=%s | elapsed_ms=%.0f",
-                request.sessionId, result.scamDetected, elapsed_ms)
-    return result
+    raise last_exc
 

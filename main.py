@@ -109,7 +109,7 @@ async def honeypot_endpoint(
                 payload.sessionId, payload.message.sender, len(payload.conversationHistory))
 
     try:
-        analysis = analyze_with_gemini(payload)
+        analysis = await asyncio.to_thread(analyze_with_gemini, payload)
     except Exception as exc:
         logger.exception("Gemini error: %s", exc)
         raise HTTPException(
