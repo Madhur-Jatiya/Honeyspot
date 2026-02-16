@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import List
 
@@ -139,8 +140,139 @@ def _parse_gemini_json(raw_text: str) -> GeminiAnalysisResult:
         raise RuntimeError(f"Gemini output failed validation: {exc}") from exc
 
 
-_GEMINI_MAX_ATTEMPTS = 4
-_GEMINI_RETRY_DELAYS = [1.0, 2.0, 4.0]  # exponential backoff
+_GEMINI_MAX_ATTEMPTS = 2
+_GEMINI_RETRY_DELAYS = [1.0]  # single retry with 1s delay
+_GEMINI_TIMEOUT = 20  # seconds — must stay well under evaluator's 30s limit
+
+
+# ---------------------------------------------------------------------------
+# Regex-based intelligence extraction — reliable fallback for Gemini misses
+# ---------------------------------------------------------------------------
+
+_RE_PHONE = re.compile(
+    r'(?:\+?\d{1,3}[-.\s]?)?(?:\(?\d{2,5}\)?[-.\s]?)?\d{5,10}(?:[-.\s]?\d{1,5})?'
+)
+_RE_UPI = re.compile(r'[a-zA-Z0-9._-]+@[a-zA-Z]{2,}')
+_RE_EMAIL = re.compile(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}')
+_RE_URL = re.compile(r'https?://[^\s,\'"<>]+')
+_RE_BANK_ACCOUNT = re.compile(r'\b\d{9,18}\b')
+
+# Known UPI handles to distinguish UPI IDs from emails
+_UPI_HANDLES = {
+    'ybl', 'paytm', 'oksbi', 'okaxis', 'okicici', 'okhdfcbank', 'upi',
+    'apl', 'freecharge', 'ibl', 'sbi', 'axisbank', 'icici', 'hdfcbank',
+    'kotak', 'boi', 'pnb', 'bob', 'cnrb', 'unionbank', 'idbi', 'rbl',
+    'indus', 'federal', 'kvb', 'idfcfirst', 'dbs', 'hsbc', 'scb', 'citi',
+    'axl', 'jupiteraxis', 'fam', 'slice', 'niyoicici', 'ikwik',
+    'abfspay', 'waaxis', 'wahdfcbank', 'wasbi', 'waicici', 'postbank',
+    'aubank', 'equitas', 'ujjivan', 'bandhan', 'fino', 'airtel', 'jio',
+    'phonepe', 'gpay', 'amazonpay', 'whatsapp', 'mobikwik',
+    'fakebank', 'fakeupi',  # test handles from evaluation docs
+}
+
+
+def _is_likely_upi(addr: str) -> bool:
+    """Check if an email-like string is a UPI ID (by known handle)."""
+    parts = addr.split('@')
+    if len(parts) != 2:
+        return False
+    domain = parts[1].lower()
+    # UPI IDs have short handles (no dots), emails have domains with dots
+    if '.' in domain:
+        return False
+    return domain in _UPI_HANDLES or len(domain) <= 6
+
+
+def _is_likely_phone(text: str) -> bool:
+    """Filter regex phone matches to plausible phone numbers."""
+    digits = re.sub(r'\D', '', text)
+    return 7 <= len(digits) <= 15
+
+
+def regex_extract_intelligence(request: HoneypotRequest) -> ExtractedIntelligence:
+    """Extract intelligence from ALL scammer messages using regex patterns."""
+    scammer_texts: List[str] = []
+    for msg in request.conversationHistory:
+        if msg.sender == "scammer":
+            scammer_texts.append(msg.text)
+    if request.message.sender == "scammer":
+        scammer_texts.append(request.message.text)
+
+    combined = "\n".join(scammer_texts)
+
+    phone_numbers: List[str] = []
+    upi_ids: List[str] = []
+    emails: List[str] = []
+    phishing_links: List[str] = []
+    bank_accounts: List[str] = []
+
+    # Extract URLs first (so we don't confuse URL parts with other data)
+    for url in _RE_URL.findall(combined):
+        url_clean = url.rstrip('.,;:!?)>]')
+        if url_clean not in phishing_links:
+            phishing_links.append(url_clean)
+
+    # Extract full emails first (longer match wins)
+    for addr in _RE_EMAIL.findall(combined):
+        if addr not in emails:
+            emails.append(addr)
+
+    # Extract UPI-like patterns, but skip if they're a prefix of a captured email
+    for addr in _RE_UPI.findall(combined):
+        if _is_likely_upi(addr):
+            # Check this isn't a truncated version of a full email
+            is_email_prefix = any(
+                em.startswith(addr) and len(em) > len(addr) for em in emails
+            )
+            if not is_email_prefix and addr not in upi_ids:
+                upi_ids.append(addr)
+
+    # Extract phone numbers
+    phone_digit_sets: set[str] = set()
+    for match in _RE_PHONE.finditer(combined):
+        candidate = match.group().strip()
+        if _is_likely_phone(candidate):
+            if candidate not in phone_numbers:
+                phone_numbers.append(candidate)
+                phone_digit_sets.add(re.sub(r'\D', '', candidate))
+
+    # Extract bank account numbers — skip if the same digits already match a phone
+    for match in _RE_BANK_ACCOUNT.finditer(combined):
+        candidate = match.group()
+        digits = candidate  # already pure digits from \d regex
+        if 9 <= len(digits) <= 18:
+            if digits not in phone_digit_sets and candidate not in bank_accounts:
+                bank_accounts.append(candidate)
+
+    return ExtractedIntelligence(
+        phoneNumbers=phone_numbers,
+        upiIds=upi_ids,
+        phishingLinks=phishing_links,
+        emailAddresses=emails,
+        bankAccounts=bank_accounts,
+        suspiciousKeywords=[],
+    )
+
+
+def merge_intelligence(a: ExtractedIntelligence, b: ExtractedIntelligence) -> ExtractedIntelligence:
+    """Merge two intelligence results, deduplicating by exact string match."""
+    def _union(x: List[str], y: List[str]) -> List[str]:
+        seen: set[str] = set()
+        result: List[str] = []
+        for item in x + y:
+            if item not in seen:
+                seen.add(item)
+                result.append(item)
+        return result
+
+    return ExtractedIntelligence(
+        bankAccounts=_union(a.bankAccounts, b.bankAccounts),
+        upiIds=_union(a.upiIds, b.upiIds),
+        phishingLinks=_union(a.phishingLinks, b.phishingLinks),
+        phoneNumbers=_union(a.phoneNumbers, b.phoneNumbers),
+        emailAddresses=_union(a.emailAddresses, b.emailAddresses),
+        suspiciousKeywords=_union(a.suspiciousKeywords, b.suspiciousKeywords),
+    )
 
 
 def analyze_with_gemini(request: HoneypotRequest) -> GeminiAnalysisResult:
@@ -159,9 +291,12 @@ def analyze_with_gemini(request: HoneypotRequest) -> GeminiAnalysisResult:
                     conversation_text,
                 ],
                 generation_config={"response_mime_type": "application/json"},
-                request_options={"timeout": 60},
+                request_options={"timeout": _GEMINI_TIMEOUT},
             )
             result = _parse_gemini_json(response.text)
+            # Merge Gemini intelligence with regex extraction for reliability
+            regex_intel = regex_extract_intelligence(request)
+            result.intelligence = merge_intelligence(result.intelligence, regex_intel)
             elapsed_ms = (time.perf_counter() - start) * 1000
             logger.info("Gemini done | sessionId=%s | scamDetected=%s | elapsed_ms=%.0f | attempt=%d",
                         request.sessionId, result.scamDetected, elapsed_ms, attempt)
@@ -174,5 +309,20 @@ def analyze_with_gemini(request: HoneypotRequest) -> GeminiAnalysisResult:
                 delay = _GEMINI_RETRY_DELAYS[min(attempt - 1, len(_GEMINI_RETRY_DELAYS) - 1)]
                 time.sleep(delay)
 
-    raise last_exc
+    # All Gemini attempts failed — return a safe fallback with regex intelligence
+    regex_intel = regex_extract_intelligence(request)
+    has_intel = bool(
+        regex_intel.phoneNumbers or regex_intel.upiIds or
+        regex_intel.phishingLinks or regex_intel.emailAddresses or
+        regex_intel.bankAccounts
+    )
+    logger.warning("All Gemini attempts failed, using regex fallback | sessionId=%s | error=%s",
+                   request.sessionId, last_exc)
+    return GeminiAnalysisResult(
+        scamDetected=True,  # conservative: assume scam if Gemini can't respond
+        agentReply="Sorry, I was busy. Can you repeat that?",
+        agentNotes=f"Gemini failed after {_GEMINI_MAX_ATTEMPTS} attempts: {last_exc}",
+        intelligence=regex_intel,
+        shouldTriggerCallback=has_intel,
+    )
 

@@ -33,7 +33,7 @@ async def send_final_result_callback(
 
     payload = {
         "sessionId": request.sessionId,
-        "status": "completed",
+        "status": "success",
         "scamDetected": scam_detected,
         "totalMessagesExchanged": total_messages_exchanged,
         "extractedIntelligence": intelligence_dict,
@@ -41,7 +41,7 @@ async def send_final_result_callback(
             "engagementDurationSeconds": engagement_duration_seconds,
             "totalMessagesExchanged": total_messages_exchanged,
         },
-        "agentNotes": agent_notes,
+        "agentNotes": agent_notes or "Scam analysis completed",
     }
 
     logger.info("Sending GUVI callback | sessionId=%s | scamDetected=%s | totalMessages=%d",
