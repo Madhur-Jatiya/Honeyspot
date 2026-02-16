@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional
 
@@ -108,7 +109,7 @@ async def honeypot_endpoint(
                 payload.sessionId, payload.message.sender, len(payload.conversationHistory))
 
     try:
-        analysis = analyze_with_gemini(payload)
+        analysis = await asyncio.to_thread(analyze_with_gemini, payload)
     except Exception as exc:
         logger.exception("Gemini error: %s", exc)
         raise HTTPException(
@@ -120,10 +121,10 @@ async def honeypot_endpoint(
     logger.info("Analysis done | sessionId=%s | scamDetected=%s | reply_len=%d | totalMessages=%d",
                 payload.sessionId, analysis.scamDetected, len(analysis.agentReply or ""), metrics.totalMessagesExchanged)
 
-    # Simplified response: only status and reply (as required by evaluator)
     response = HoneypotResponse(
         status="success",
         reply=analysis.agentReply or "",
+
     )
 
     # Fire-and-forget callback if conditions are met.
@@ -135,8 +136,6 @@ async def honeypot_endpoint(
     if should_callback:
         logger.info("Triggering GUVI callback | sessionId=%s | totalMessages=%d",
                     payload.sessionId, metrics.totalMessagesExchanged)
-        import asyncio
-
         asyncio.create_task(
             send_final_result_callback(
                 request=payload,
