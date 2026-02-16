@@ -66,6 +66,10 @@ class ExtractedIntelligence(BaseModel):
 class HoneypotResponse(BaseModel):
     status: Literal["success", "error"]
     reply: str
+    scamDetected: bool = False
+    extractedIntelligence: Optional[ExtractedIntelligence] = None
+    agentNotes: Optional[str] = None
+    engagementMetrics: Optional["EngagementMetrics"] = None
    
 
 

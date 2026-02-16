@@ -139,14 +139,14 @@ async def honeypot_endpoint(
     response = HoneypotResponse(
         status="success",
         reply=analysis.agentReply or "",
-
+        scamDetected=analysis.scamDetected,
+        extractedIntelligence=analysis.intelligence,
+        agentNotes=analysis.agentNotes,
+        engagementMetrics=metrics,
     )
 
-    # Fire-and-forget callback if conditions are met.
-    # For hackathon and testing, we also trigger when the conversation is long enough.
-    should_callback = analysis.scamDetected and (
-        analysis.shouldTriggerCallback or metrics.totalMessagesExchanged >= 4
-    )
+    # Fire callback whenever scam is detected - don't wait for message threshold
+    should_callback = analysis.scamDetected
 
     if should_callback:
         logger.info("Triggering GUVI callback | sessionId=%s | totalMessages=%d",
