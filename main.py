@@ -141,6 +141,7 @@ async def honeypot_endpoint(
                 request=payload,
                 scam_detected=analysis.scamDetected,
                 total_messages_exchanged=metrics.totalMessagesExchanged,
+                engagement_duration_seconds=metrics.engagementDurationSeconds,
                 intelligence=analysis.intelligence,
                 agent_notes=analysis.agentNotes,
             )

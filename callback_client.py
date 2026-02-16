@@ -18,6 +18,7 @@ async def send_final_result_callback(
     request: HoneypotRequest,
     scam_detected: bool,
     total_messages_exchanged: int,
+    engagement_duration_seconds: int,
     intelligence: ExtractedIntelligence,
     agent_notes: str,
 ) -> None:
@@ -26,14 +27,20 @@ async def send_final_result_callback(
         "upiIds": intelligence.upiIds,
         "phishingLinks": intelligence.phishingLinks,
         "phoneNumbers": intelligence.phoneNumbers,
+        "emailAddresses": intelligence.emailAddresses,
         "suspiciousKeywords": intelligence.suspiciousKeywords,
     }
 
     payload = {
         "sessionId": request.sessionId,
+        "status": "completed",
         "scamDetected": scam_detected,
         "totalMessagesExchanged": total_messages_exchanged,
         "extractedIntelligence": intelligence_dict,
+        "engagementMetrics": {
+            "engagementDurationSeconds": engagement_duration_seconds,
+            "totalMessagesExchanged": total_messages_exchanged,
+        },
         "agentNotes": agent_notes,
     }
 
