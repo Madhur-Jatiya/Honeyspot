@@ -23,7 +23,7 @@ from schemas import (
     HoneypotResponse,
 )
 
-LOG_DIR = "log"
+LOG_DIR = "/tmp/log"
 LOG_FILE = f"{LOG_DIR}/error.log"
 os.makedirs(LOG_DIR, exist_ok=True)
 
